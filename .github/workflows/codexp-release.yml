@@ -118,7 +118,6 @@ jobs:
             cp "target/${target}/release/${binary}" dist/codexp/bin/
           done
           tar -czf "codexp-package-${target}.tar.gz" -C dist codexp
-          sha256sum "codexp-package-${target}.tar.gz" >> codexp-package_SHA256SUMS
 
       - name: Package (Windows)
         if: ${{ runner.os == 'Windows' }}
@@ -131,15 +130,11 @@ jobs:
             Copy-Item "codex-rs/target/$target/release/$bin.exe" "dist/codexp/bin/"
           }
           tar -czf "codexp-package-$target.tar.gz" -C dist codexp
-          $hash = (Get-FileHash "codexp-package-$target.tar.gz" -Algorithm SHA256).Hash.ToLower()
-          "$hash  codexp-package-$target.tar.gz" | Out-File -Append -Encoding ascii codexp-package_SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
           name: codexp-${{ matrix.target }}
-          path: |
-            codex-rs/codexp-package-*.tar.gz
-            codex-rs/codexp-package_SHA256SUMS
+          path: codex-rs/codexp-package-*.tar.gz
 
   release:
     needs: [build]
@@ -150,6 +145,28 @@ jobs:
         with:
           merge-multiple: true
           path: dist
+
+      - name: Add Codexp package checksum manifest
+        run: |
+          set -euo pipefail
+
+          manifest="dist/codexp-package_SHA256SUMS"
+          tmp_manifest="$(mktemp)"
+          find dist -type f -name 'codexp-package-*.tar.gz' -print |
+            sort |
+            while IFS= read -r archive; do
+              sha256sum "$archive" |
+                awk -v name="$(basename "$archive")" '{ print $1 "  " name }'
+            done > "$tmp_manifest"
+
+          if [[ ! -s "$tmp_manifest" ]]; then
+            echo "No Codexp package archives found for checksum manifest"
+            exit 1
+          fi
+
+          mv "$tmp_manifest" "$manifest"
+          cat "$manifest"
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
