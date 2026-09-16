@@ -1,0 +1,165 @@
+# Codexp release workflow — builds multi-platform binaries and publishes to GitHub Releases.
+# Triggered by pushing a tag matching codexp-v*.*.*
+
+name: codexp-release
+
+on:
+  push:
+    tags:
+      - "codexp-v*.*.*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
+      - name: Package
+        run: |
+          mkdir -p dist/codexp/bin
+          cp codex-rs/target/release/codexp dist/codexp/bin/
+          cp codex-rs/target/release/codexp-exec dist/codexp/bin/
+          cp codex-rs/target/release/codexp-app-server dist/codexp/bin/
+          tar -czf codexp-package-x86_64-unknown-linux-gnu.tar.gz -C dist codexp
+          sha256sum codexp-package-x86_64-unknown-linux-gnu.tar.gz >> codexp-package_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codexp-linux-x86_64
+          path: |
+            codexp-package-x86_64-unknown-linux-gnu.tar.gz
+            codexp-package_SHA256SUMS
+
+  build-linux-aarch64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - name: Install cross-compilation toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Build
+        working-directory: codex-rs
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target aarch64-unknown-linux-gnu --bin codexp
+      - name: Package
+        run: |
+          mkdir -p dist/codexp/bin
+          cp codex-rs/target/aarch64-unknown-linux-gnu/release/codexp dist/codexp/bin/
+          tar -czf codexp-package-aarch64-unknown-linux-gnu.tar.gz -C dist codexp
+          sha256sum codexp-package-aarch64-unknown-linux-gnu.tar.gz >> codexp-package_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codexp-linux-aarch64
+          path: |
+            codexp-package-aarch64-unknown-linux-gnu.tar.gz
+            codexp-package_SHA256SUMS
+
+  build-macos-aarch64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
+      - name: Package
+        run: |
+          mkdir -p dist/codexp/bin
+          cp codex-rs/target/release/codexp dist/codexp/bin/
+          cp codex-rs/target/release/codexp-exec dist/codexp/bin/
+          cp codex-rs/target/release/codexp-app-server dist/codexp/bin/
+          tar -czf codexp-package-aarch64-apple-darwin.tar.gz -C dist codexp
+          shasum -a 256 codexp-package-aarch64-apple-darwin.tar.gz >> codexp-package_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codexp-macos-aarch64
+          path: |
+            codexp-package-aarch64-apple-darwin.tar.gz
+            codexp-package_SHA256SUMS
+
+  build-macos-x86_64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --target x86_64-apple-darwin --bin codexp
+      - name: Package
+        run: |
+          mkdir -p dist/codexp/bin
+          cp codex-rs/target/x86_64-apple-darwin/release/codexp dist/codexp/bin/
+          tar -czf codexp-package-x86_64-apple-darwin.tar.gz -C dist codexp
+          shasum -a 256 codexp-package-x86_64-apple-darwin.tar.gz >> codexp-package_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codexp-macos-x86_64
+          path: |
+            codexp-package-x86_64-apple-darwin.tar.gz
+            codexp-package_SHA256SUMS
+
+  build-windows-x86_64:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Build
+        working-directory: codex-rs
+        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/codexp/bin
+          Copy-Item codex-rs/target/release/codexp.exe dist/codexp/bin/
+          Copy-Item codex-rs/target/release/codexp-exec.exe dist/codexp/bin/
+          Copy-Item codex-rs/target/release/codexp-app-server.exe dist/codexp/bin/
+          tar -czf codexp-package-x86_64-pc-windows-msvc.tar.gz -C dist codexp
+          $hash = (Get-FileHash codexp-package-x86_64-pc-windows-msvc.tar.gz -Algorithm SHA256).Hash.ToLower()
+          "$hash  codexp-package-x86_64-pc-windows-msvc.tar.gz" | Out-File -Append -Encoding ascii codexp-package_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codexp-windows-x86_64
+          path: |
+            codexp-package-x86_64-pc-windows-msvc.tar.gz
+            codexp-package_SHA256SUMS
+
+  release:
+    needs: [build-linux-x86_64, build-linux-aarch64, build-macos-aarch64, build-macos-x86_64, build-windows-x86_64]
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/codexp-v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Merge checksums
+        run: |
+          cd dist
+          cat codexp-package_SHA256SUMS >> /tmp/all_sums.txt || true
+          find . -name 'codexp-package_SHA256SUMS' -exec cat {} \; > merged_SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/codexp-package-*.tar.gz
+            dist/merged_SHA256SUMS
+          generate_release_notes: true

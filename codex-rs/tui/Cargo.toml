@@ -1,12 +1,12 @@
 [package]
-name = "codex-tui"
+name = "codexp-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 autobins = false
 
 [[bin]]
-name = "codex-tui"
+name = "codexp-tui"
 path = "src/main.rs"
 
 [[bin]]

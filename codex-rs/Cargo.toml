@@ -10,6 +10,7 @@ members = [
     "build-info",
     "ansi-escape",
     "attachment-store",
+    "privacy",
     "async-utils",
     "app-server",
     "app-server-transport",
@@ -247,6 +248,7 @@ codex-otel-trace-websocket = { path = "otel-trace-websocket" }
 codex-plugin = { path = "plugin" }
 codex-model-provider = { path = "model-provider" }
 codex-process-hardening = { path = "process-hardening" }
+codex-privacy = { path = "privacy" }
 codex-protocol = { path = "protocol" }
 codex-prompts = { path = "prompts" }
 codex-queue-extension = { path = "ext/queue" }

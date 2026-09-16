@@ -629,13 +629,16 @@ impl TurnContext {
 }
 
 fn local_time_context() -> (String, String) {
-    match iana_time_zone::get_timezone() {
+    let (date, timezone) = match iana_time_zone::get_timezone() {
         Ok(timezone) => (Local::now().format("%Y-%m-%d").to_string(), timezone),
         Err(_) => (
             Utc::now().format("%Y-%m-%d").to_string(),
             "Etc/UTC".to_string(),
         ),
-    }
+    };
+    let date = codex_privacy::current_date().unwrap_or(date);
+    let timezone = codex_privacy::timezone().unwrap_or(timezone);
+    (date, timezone)
 }
 
 impl Session {

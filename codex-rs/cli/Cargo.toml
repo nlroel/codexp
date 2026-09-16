@@ -7,7 +7,7 @@ build = "build.rs"
 default-run = "codex"
 
 [[bin]]
-name = "codex"
+name = "codexp"
 path = "src/main.rs"
 
 [[bin]]

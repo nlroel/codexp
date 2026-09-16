@@ -1,12 +1,12 @@
 [package]
-name = "codex-exec"
+name = "codexp-exec"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 autotests = false
 
 [[bin]]
-name = "codex-exec"
+name = "codexp-exec"
 path = "src/main.rs"
 
 [lib]

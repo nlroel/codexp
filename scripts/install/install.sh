@@ -2,21 +2,22 @@
 
 set -eu
 
-RELEASE="${CODEX_RELEASE:-latest}"
-NON_INTERACTIVE="${CODEX_NON_INTERACTIVE:-false}"
-DEFAULT_PREFER_RELEASES_OPENAI_COM="true"
-PREFER_RELEASES_OPENAI_COM="${CODEX_INSTALLER_USE_RELEASES_OPENAI_COM:-$DEFAULT_PREFER_RELEASES_OPENAI_COM}"
-RELEASES_BASE_URL="https://releases.openai.com/codex"
+RELEASE="${CODEXP_RELEASE:-latest}"
+NON_INTERACTIVE="${CODEXP_NON_INTERACTIVE:-false}"
+DEFAULT_PREFER_RELEASES_OPENAI_COM="false"
+FORCE_GITHUB_ONLY="true"
+PREFER_RELEASES_OPENAI_COM="${CODEXP_INSTALLER_USE_GITHUB:-$DEFAULT_PREFER_RELEASES_OPENAI_COM}"
+RELEASES_BASE_URL=""
 RELEASES_CONNECT_TIMEOUT=10
 RELEASES_METADATA_TIMEOUT=30
 RELEASES_ASSET_TIMEOUT=300
 release_source="github"
 
-BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"
-BIN_PATH="$BIN_DIR/codex"
-CODE_MODE_HOST_BIN_PATH="$BIN_DIR/codex-code-mode-host"
-CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
-STANDALONE_ROOT="$CODEX_HOME_DIR/packages/standalone"
+BIN_DIR="${CODEXP_INSTALL_DIR:-$HOME/.local/bin}"
+BIN_PATH="$BIN_DIR/codexp"
+CODE_MODE_HOST_BIN_PATH="$BIN_DIR/codexp-code-mode-host"
+CODEXP_HOME_DIR="${CODEXP_HOME:-$HOME/.codexp}"
+STANDALONE_ROOT="$CODEXP_HOME_DIR/packages/standalone"
 RELEASES_DIR="$STANDALONE_ROOT/releases"
 CURRENT_LINK="$STANDALONE_ROOT/current"
 LOCK_FILE="$STANDALONE_ROOT/install.lock"
@@ -84,9 +85,9 @@ parse_args() {
 Usage: install.sh [--release VERSION]
 
 Environment:
-  CODEX_RELEASE          Version to install; overridden by --release.
-  CODEX_NON_INTERACTIVE  Set to 1, true, or yes to skip prompts.
-  CODEX_INSTALLER_USE_RELEASES_OPENAI_COM
+  CODEXP_RELEASE          Version to install; overridden by --release.
+  CODEXP_NON_INTERACTIVE  Set to 1, true, or yes to skip prompts.
+  CODEXP_INSTALLER_USE_GITHUB
                          Set to 0, false, or no to use GitHub Releases.
 EOF
         exit 0
@@ -307,7 +308,7 @@ release_url_for_asset() {
   asset="$1"
   resolved_version="$2"
 
-  printf 'https://github.com/openai/codex/releases/download/rust-v%s/%s\n' "$resolved_version" "$asset"
+  printf 'https://github.com/nlroel/codexp/releases/download/rust-v%s/%s\n' "$resolved_version" "$asset"
 }
 
 releases_url_for_asset() {
@@ -386,7 +387,7 @@ resolve_release_from_releases() {
     return 1
   fi
 
-  if ! parse_downloaded_release_metadata "$requested_release" "releases.openai.com"; then
+  if true; then # Always use GitHub Releases for codexp
     return 1
   fi
   if ! resolve_metadata_version; then
@@ -461,7 +462,7 @@ release_asset_digest() {
 }
 
 select_release_assets() {
-  package_asset="codex-package-$vendor_target.tar.gz"
+  package_asset="codexp-package-$vendor_target.tar.gz"
   checksum_asset="codex-package_SHA256SUMS"
   download_fallback_url=""
   checksum_fallback_url=""
@@ -470,9 +471,9 @@ select_release_assets() {
     release_asset_exists "$checksum_asset"; then
     install_layout="package"
     asset="$package_asset"
-  elif release_asset_exists "codex-npm-$npm_tag-$resolved_version.tgz"; then
+  elif release_asset_exists "codexp-npm-$npm_tag-$resolved_version.tgz"; then
     install_layout="legacy-platform-npm"
-    asset="codex-npm-$npm_tag-$resolved_version.tgz"
+    asset="codexp-npm-$npm_tag-$resolved_version.tgz"
   else
     echo "Could not find Codex package or platform npm release assets for Codex $resolved_version." >&2
     return 1
@@ -742,7 +743,7 @@ cleanup_stale_install_artifacts() {
   find "$STANDALONE_ROOT" -mindepth 1 -maxdepth 1 -name '.current.*' -exec rm -f {} +
 
   if [ -d "$BIN_DIR" ]; then
-    find "$BIN_DIR" -mindepth 1 -maxdepth 1 -name '.codex.*' -exec rm -f {} +
+    find "$BIN_DIR" -mindepth 1 -maxdepth 1 -name '.codexp.*' -exec rm -f {} +
   fi
 }
 
@@ -915,10 +916,10 @@ handle_conflicting_install() {
       uninstall_cmd="brew uninstall --cask codex"
       ;;
     bun)
-      uninstall_cmd="bun remove -g @openai/codex"
+      uninstall_cmd="bun remove -g @nlroel/codexp"
       ;;
     *)
-      uninstall_cmd="npm uninstall -g @openai/codex"
+      uninstall_cmd="npm uninstall -g @nlroel/codexp"
       ;;
   esac
 
@@ -943,7 +944,7 @@ install_package_release() {
   tar -xzf "$archive_path" -C "$stage_release"
   chmod 0755 \
     "$stage_release/bin/codex" \
-    "$stage_release/bin/codex-code-mode-host" \
+    "$stage_release/bin/codexp-code-mode-host" \
     "$stage_release/codex-path/rg"
   if [ -f "$stage_release/codex-resources/bwrap" ]; then
     chmod 0755 "$stage_release/codex-resources/bwrap"
@@ -997,7 +998,7 @@ release_dir_is_complete() {
     package)
       [ -f "$release_dir/codex-package.json" ] &&
         [ -x "$release_dir/bin/codex" ] &&
-        [ -x "$release_dir/bin/codex-code-mode-host" ] &&
+        [ -x "$release_dir/bin/codexp-code-mode-host" ] &&
         [ -x "$release_dir/codex" ] &&
         [ -x "$release_dir/codex-path/rg" ] ||
         return 1
@@ -1047,13 +1048,13 @@ update_visible_command() {
 
   replace_path_with_symlink "$BIN_PATH" "$CURRENT_LINK/$codex_relative_path" "$tmp_link"
 
-  if [ "$os" = "darwin" ] && [ -x "$release_dir/bin/codex-code-mode-host" ]; then
+  if [ "$os" = "darwin" ] && [ -x "$release_dir/bin/codexp-code-mode-host" ]; then
     replace_path_with_symlink \
       "$CODE_MODE_HOST_BIN_PATH" \
-      "$CURRENT_LINK/bin/codex-code-mode-host" \
+      "$CURRENT_LINK/bin/codexp-code-mode-host" \
       "$tmp_link"
   elif [ "$(readlink "$CODE_MODE_HOST_BIN_PATH" 2>/dev/null || true)" = \
-    "$CURRENT_LINK/bin/codex-code-mode-host" ]; then
+    "$CURRENT_LINK/bin/codexp-code-mode-host" ]; then
     rm -f "$CODE_MODE_HOST_BIN_PATH"
   fi
 }
@@ -1130,11 +1131,11 @@ release_dir="$RELEASES_DIR/$release_name"
 current_version="$(current_installed_version)"
 
 if [ -n "$current_version" ] && [ "$current_version" != "$resolved_version" ]; then
-  step "Updating Codex CLI from $current_version to $resolved_version"
+  step "Updating Codexp CLI from $current_version to $resolved_version"
 elif [ -n "$current_version" ]; then
-  step "Updating Codex CLI"
+  step "Updating Codexp CLI"
 else
-  step "Installing Codex CLI"
+  step "Installing Codexp CLI"
 fi
 step "Detected platform: $platform_label"
 step "Resolved version: $resolved_version"
@@ -1161,7 +1162,7 @@ if ! release_dir_is_complete "$release_dir" "$resolved_version" "$vendor_target"
   archive_path="$tmp_dir/$asset"
   checksum_path="$tmp_dir/$checksum_asset"
 
-  step "Downloading Codex CLI"
+  step "Downloading Codexp CLI"
   if [ "$install_layout" = "package" ]; then
     checksum_digest="$(release_asset_digest "$checksum_asset")"
     download_file_with_fallback "$checksum_url" "$checksum_fallback_url" "$checksum_path" "$checksum_digest" "$checksum_asset" "$asset"
@@ -1205,5 +1206,5 @@ case "$path_action" in
     ;;
 esac
 
-printf 'Codex CLI %s installed successfully.\n' "$resolved_version"
+printf 'Codexp CLI %s installed successfully.\n' "$resolved_version"
 maybe_launch_codex_now

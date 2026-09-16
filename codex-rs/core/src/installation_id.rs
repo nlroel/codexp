@@ -17,6 +17,12 @@ use uuid::Uuid;
 pub(crate) const INSTALLATION_ID_FILENAME: &str = "installation_id";
 
 pub async fn resolve_installation_id(codex_home: &AbsolutePathBuf) -> Result<String> {
+    // Privacy: if a passkey is configured, derive the installation_id from it
+    // instead of using the persisted file.
+    if let Some(obfuscated_id) = codex_privacy::installation_id() {
+        return Ok(obfuscated_id);
+    }
+
     let path = codex_home.join(INSTALLATION_ID_FILENAME);
     fs::create_dir_all(codex_home).await?;
     tokio::task::spawn_blocking(move || {

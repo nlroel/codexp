@@ -156,6 +156,13 @@ where
     // environment overrides.
     env_map.retain(|name, _| !is_non_inheritable_env_var(name));
 
+    // Privacy: override locale env vars before passing to child processes.
+    if let Some(locale) = codex_privacy::locale() {
+        for key in ["LANG", "LC_ALL", "LC_CTYPE", "LANGUAGE"] {
+            env_map.insert(key.to_string(), locale.clone());
+        }
+    }
+
     env_map
 }
 
