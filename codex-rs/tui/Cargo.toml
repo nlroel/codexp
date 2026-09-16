@@ -1,5 +1,5 @@
 [package]
-name = "codexp-tui"
+name = "codex-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

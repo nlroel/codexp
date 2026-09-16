@@ -1,5 +1,5 @@
 [package]
-name = "codexp-exec"
+name = "codex-exec"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
