@@ -1,4 +1,5 @@
-# Codexp release workflow — builds multi-platform binaries and publishes to GitHub Releases.
+# Codexp release workflow — adapted from openai/codex rust-release.yml
+# Builds multi-platform binaries and publishes to GitHub Releases.
 # Triggered by pushing a tag matching codexp-v*.*.*
 
 name: codexp-release
@@ -11,84 +12,137 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 permissions:
   contents: write
 
 jobs:
-  build-linux-x86_64:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        working-directory: codex-rs
-        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
-      - name: Package
-        run: |
-          mkdir -p dist/codexp/bin
-          cp codex-rs/target/release/codexp dist/codexp/bin/
-          cp codex-rs/target/release/codexp-exec dist/codexp/bin/
-          cp codex-rs/target/release/codexp-app-server dist/codexp/bin/
-          tar -czf codexp-package-x86_64-unknown-linux-gnu.tar.gz -C dist codexp
-          sha256sum codexp-package-x86_64-unknown-linux-gnu.tar.gz >> codexp-package_SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: codexp-linux-x86_64
-          path: |
-            codexp-package-x86_64-unknown-linux-gnu.tar.gz
-            codexp-package_SHA256SUMS
+  build:
+    name: Build - ${{ matrix.target }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM64 (native)
+          - runs_on: macos-14
+            target: aarch64-apple-darwin
+            binaries: "codexp codexp-code-mode-host codexp-exec"
+          # macOS x86_64 (cross-compile from ARM)
+          - runs_on: macos-14
+            target: x86_64-apple-darwin
+            binaries: "codexp codexp-code-mode-host codexp-exec"
+          # Linux x86_64 (musl, static)
+          - runs_on: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            binaries: "codexp codexp-code-mode-host codexp-exec"
+          # Linux ARM64 (musl, static, native ARM runner)
+          - runs_on: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            binaries: "codexp codexp-code-mode-host codexp-exec"
+          # Windows x86_64 (native)
+          - runs_on: windows-2022
+            target: x86_64-pc-windows-msvc
+            binaries: "codexp codexp-code-mode-host codexp-exec"
 
-  build-macos-aarch64:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
+    defaults:
+      run:
         working-directory: codex-rs
-        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
-      - name: Package
-        run: |
-          mkdir -p dist/codexp/bin
-          cp codex-rs/target/release/codexp dist/codexp/bin/
-          cp codex-rs/target/release/codexp-exec dist/codexp/bin/
-          cp codex-rs/target/release/codexp-app-server dist/codexp/bin/
-          tar -czf codexp-package-aarch64-apple-darwin.tar.gz -C dist codexp
-          shasum -a 256 codexp-package-aarch64-apple-darwin.tar.gz >> codexp-package_SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: codexp-macos-aarch64
-          path: |
-            codexp-package-aarch64-apple-darwin.tar.gz
-            codexp-package_SHA256SUMS
 
-  build-windows-x86_64:
-    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            binutils pkg-config libcap-dev musl-tools clang lld
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig (Linux musl cross-compiler)
+        if: ${{ runner.os == 'Linux' }}
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.0
+
+      - name: Configure musl linker (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          target="${{ matrix.target }}"
+          arch="${target%%-*}"
+          zig_target="${target/-unknown-linux-musl/-linux-musl}"
+          # Use Zig as the cross-compilation linker for musl
+          mkdir -p "${RUNNER_TEMP}/musl-linker"
+          cat > "${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc" << SCRIPT
+          #!/bin/sh
+          exec zig cc -target ${zig_target} "$@"
+          SCRIPT
+          chmod +x "${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc"
+          echo "CARGO_TARGET_${target^^//-/_}_LINKER=${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc" >> "$GITHUB_ENV"
+
+      - name: Disable aws-lc jitter entropy (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          target="${{ matrix.target }}"
+          env_var="AWS_LC_SYS_NO_JITTER_ENTROPY_${target}"
+          env_var="${env_var//-/_}"
+          echo "AWS_LC_SYS_NO_JITTER_ENTROPY=1" >> "$GITHUB_ENV"
+          echo "${env_var}=1" >> "$GITHUB_ENV"
+
       - name: Build
-        working-directory: codex-rs
-        run: cargo build --release --bin codexp --bin codexp-exec --bin codexp-app-server
-      - name: Package
+        shell: bash
+        run: |
+          target="${{ matrix.target }}"
+          build_args=()
+          for binary in ${{ matrix.binaries }}; do
+            build_args+=(--bin "$binary")
+          done
+          cargo build --target "$target" --release "${build_args[@]}"
+
+      - name: Package (Unix)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          target="${{ matrix.target }}"
+          mkdir -p dist/codexp/bin
+          for binary in ${{ matrix.binaries }}; do
+            cp "target/${target}/release/${binary}" dist/codexp/bin/
+          done
+          tar -czf "codexp-package-${target}.tar.gz" -C dist codexp
+          sha256sum "codexp-package-${target}.tar.gz" >> codexp-package_SHA256SUMS
+
+      - name: Package (Windows)
+        if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: |
+          $target = "${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path dist/codexp/bin
-          Copy-Item codex-rs/target/release/codexp.exe dist/codexp/bin/
-          Copy-Item codex-rs/target/release/codexp-exec.exe dist/codexp/bin/
-          Copy-Item codex-rs/target/release/codexp-app-server.exe dist/codexp/bin/
-          tar -czf codexp-package-x86_64-pc-windows-msvc.tar.gz -C dist codexp
-          $hash = (Get-FileHash codexp-package-x86_64-pc-windows-msvc.tar.gz -Algorithm SHA256).Hash.ToLower()
-          "$hash  codexp-package-x86_64-pc-windows-msvc.tar.gz" | Out-File -Append -Encoding ascii codexp-package_SHA256SUMS
+          $binaries = "${{ matrix.binaries }}" -split ' '
+          foreach ($bin in $binaries) {
+            Copy-Item "codex-rs/target/$target/release/$bin.exe" "dist/codexp/bin/"
+          }
+          tar -czf "codexp-package-$target.tar.gz" -C dist codexp
+          $hash = (Get-FileHash "codexp-package-$target.tar.gz" -Algorithm SHA256).Hash.ToLower()
+          "$hash  codexp-package-$target.tar.gz" | Out-File -Append -Encoding ascii codexp-package_SHA256SUMS
+
       - uses: actions/upload-artifact@v4
         with:
-          name: codexp-windows-x86_64
+          name: codexp-${{ matrix.target }}
           path: |
-            codexp-package-x86_64-pc-windows-msvc.tar.gz
-            codexp-package_SHA256SUMS
+            codex-rs/codexp-package-*.tar.gz
+            codex-rs/codexp-package_SHA256SUMS
 
   release:
-    needs: [build-linux-x86_64, build-macos-aarch64, build-windows-x86_64]
+    needs: [build]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/codexp-v')
     steps:
