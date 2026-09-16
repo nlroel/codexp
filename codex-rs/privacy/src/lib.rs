@@ -7,7 +7,6 @@
 use sha2::Digest;
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::sync::OnceLock;
 use uuid::Uuid;
 
 /// Default timezone used when obfs.toml is auto-generated.
