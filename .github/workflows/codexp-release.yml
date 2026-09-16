@@ -70,27 +70,23 @@ jobs:
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
-      - name: Install Zig (Linux musl cross-compiler)
+      - name: Install Zig (Linux musl)
         if: ${{ runner.os == 'Linux' }}
         uses: mlugg/setup-zig@v2
         with:
           version: 0.14.0
+          use-cache: false
 
-      - name: Configure musl linker (Linux)
+      - name: Install musl build tools
         if: ${{ runner.os == 'Linux' }}
-        shell: bash
-        run: |
-          target="${{ matrix.target }}"
-          arch="${target%%-*}"
-          zig_target="${target/-unknown-linux-musl/-linux-musl}"
-          # Use Zig as the cross-compilation linker for musl
-          mkdir -p "${RUNNER_TEMP}/musl-linker"
-          cat > "${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc" << SCRIPT
-          #!/bin/sh
-          exec zig cc -target ${zig_target} "$@"
-          SCRIPT
-          chmod +x "${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc"
-          echo "CARGO_TARGET_${target^^//-/_}_LINKER=${RUNNER_TEMP}/musl-linker/${arch}-linux-musl-cc" >> "$GITHUB_ENV"
+        env:
+          TARGET: ${{ matrix.target }}
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
+
+      - name: Configure rusty_v8 artifact overrides
+        uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: ${{ matrix.target }}
 
       - name: Disable aws-lc jitter entropy (Linux)
         if: ${{ runner.os == 'Linux' }}
